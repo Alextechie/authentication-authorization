@@ -59,4 +59,7 @@ model VerificationToken {
 
   createdAt DateTime @default(now())
   expiresAt DateTime
+
+  resendCount Int @default(0)
+  lastResentAt DateTime?
 }

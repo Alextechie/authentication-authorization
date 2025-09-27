@@ -4,6 +4,7 @@ import { createUser, findUser, updateUserPassword, verification } from "./auth.m
 import { serializerForToken, serializerForUser } from "../../utils/serializers";
 import type { SafeUserProfile, TokenPayload } from "../../core/types/auth";
 import crypto from "crypto";
+import { createVerificationToken } from "../../utils/helpers";
 
 export const Authservice = {
     async registerUser(data: User): Promise<{ user: SafeUserProfile, access_token: string, verificationUrl: string }> {
@@ -19,20 +20,21 @@ export const Authservice = {
         // hash the password and create a new user
         const hashed = await hash(password);
 
-
-
         // call the register user method in the auth service
         const user = await createUser({ ...data, password: hashed});
 
         // generate verification token
         // set the expiry for the verification token
-        const verificationToken = crypto.randomBytes(32).toString("hex");
-        const verificationTokenExpiry = new Date(Date.now() +  1000 * 60 * 15);
+        // const verificationToken = crypto.randomBytes(32).toString("hex");
+        // const verificationTokenExpiry = new Date(Date.now() +  1000 * 60 * 15);
 
-        // hash the verification token
-        const hashedToken = await hash(verificationToken);
+        // // hash the verification token
+        // const hashedToken = await hash(verificationToken);
 
-        await verification(user.id, hashedToken, verificationTokenExpiry);
+        // await verification(user.id, hashedToken, verificationTokenExpiry);
+
+
+        const verificationToken = await createVerificationToken(user.id, {incrementResend: false});
 
         const verificationUrl = `${process.env.APP_URL}/auth/verify-email?token=${encodeURIComponent(verificationToken)}&id=${user.id}`;
 
@@ -57,6 +59,10 @@ export const Authservice = {
 
         if (!user) {
             throw new Error("User does not exist")
+        }
+
+        if(!user.isVerified){
+            throw new Error('Email not verified. Please check your inbox')
         }
 
         // compare the passwords
@@ -109,20 +115,4 @@ export const Authservice = {
             role: updatedProfile.role.permissions
         }
     },
-
-    async verifyEmail(email: string){
-        // get the user with that email
-        // send them an otp to verify that indeed that their real email
-        // user enter otp and verify the otp and send login the user 
-
-        const user = await findUser(email);
-
-        if(!user){
-            throw new Error("User does not exist")
-        };
-
-        // send them an email or notification with the otp
-        // verify the otp and login the user
-
-    }
 }

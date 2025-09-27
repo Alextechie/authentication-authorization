@@ -1,10 +1,17 @@
 import express, { type Request, type Response } from "express";
 import { login_schema, reset_password_schema, user_schema } from "../../utils/schema"
 import { Authservice } from "./auth.service";
-// import { serializerForUser } from "../../utils/serializers";
 import { sendEmail } from "../notifications/email/mailer";
 import prisma from "../../utils/prisma";
 import { compare, hash } from "../../utils/lib";
+import { findUser } from "./auth.model";
+
+const RATE_LIMIT_WINDOW = 5 * 60 * 1000;
+const MAX_RESENDS = 5;
+const RESEND_RESET_WINDOW = 24 * 60 * 60 * 1000;
+
+import crypto from "crypto";
+import { createVerificationToken } from "../../utils/helpers";
 
 export const createUserController = async (req: Request, res: Response): Promise<any> => {
     // input validation
@@ -110,16 +117,16 @@ export const userLogoutController = (req: Request, res: Response) => {
 // email verification controller
 export const verifyEmailController = async (req: Request, res: Response) => {
     try {
-        const {token, id} = req.query as {token: string, id: string};
+        const { token, id } = req.query as { token: string, id: string };
         console.log(token);
 
-        if (!token || typeof token !== "string"  || !id) {
+        if (!token || typeof token !== "string" || !id) {
             return res.status(400).json({ message: "Invalid token" })
         };
 
         // find the token from the model
         const record = await prisma.verificationToken.findUnique({
-            where: {userId: id}
+            where: { userId: id }
         });
 
         if (!record) {
@@ -131,7 +138,7 @@ export const verifyEmailController = async (req: Request, res: Response) => {
         // compare the hashed token with the token provided to see if it matches
         const isValid = await compare(token, record.token)
 
-        if(!isValid){
+        if (!isValid) {
             return res.status(400).json({
                 message: "Comparison failed. Invalid token"
             })
@@ -140,8 +147,10 @@ export const verifyEmailController = async (req: Request, res: Response) => {
         // check if the token has not expired
         if (record.expiresAt < new Date()) {
             await prisma.verificationToken.delete({ where: { id: record.id } });
-            return res.status(400).json({
-                message: "Token has already expired"
+
+            return res.status(410).json({
+                message: "Verification link expired. Please request a new one",
+                action: "/auth/resend-verification"
             })
         };
 
@@ -166,6 +175,98 @@ export const verifyEmailController = async (req: Request, res: Response) => {
         return res.status(500).json({
             message: "Internal server error: Something went wrong"
         })
+    }
+};
+
+
+export const resendVerificationController = async (req: Request, res: Response) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({
+                message: "Email is required"
+            })
+        };
+
+        // create a token. create a verification url and send the user an email
+        const user = await findUser(email);
+
+        if (!user) {
+            return res.status(400).json({
+                message: "User does not exist"
+            })
+        };
+
+        if (user.isVerified) {
+            return res.status(400).json({ message: "User is already verified" })
+        };
+
+        const record = await prisma.verificationToken.findUnique({
+            where: {userId: user.id}
+        });
+
+        const now = new Date();
+
+        console.log(now);
+
+        if (record) {
+            console.log("request reached here");
+            // reset counter if 24 hours passes
+            // block if within 5 mins
+            // block if daily attempts reached
+            if (record.lastResentAt && now.getTime() - record.lastResentAt.getTime() > RESEND_RESET_WINDOW) {
+                await prisma.verificationToken.update({
+                    where: { userId: user.id },
+                    data: {
+                        resendCount: 0
+                    }
+                });
+            }
+
+
+            if(record.lastResentAt && now.getTime() - record.lastResentAt.getTime() < RATE_LIMIT_WINDOW){
+                return res.status(429).json({
+                    message: "Please wait a few minutes before requesting another link"
+                })
+            }
+
+
+            if(record.resendCount >= MAX_RESENDS){
+                return res.status(429).json({message: "Too many verification attempts. Try again tomorrow"})
+            }
+
+        } else {
+            return res.status(400).json({
+                message: "Token is invalid"
+            })
+        }
+
+        // create a new token
+        const verificationToken = await createVerificationToken(user.id, {incrementResend: true})
+
+        const verificationUrl = `${process.env.APP_URL}/auth/verify-email?token=${encodeURIComponent(verificationToken)}&id=${user.id}`;
+
+        console.log(verificationToken);
+
+        await sendEmail({
+            to: user.email,
+            subject: "Verify your account",
+            html: `
+                 <div>
+                    <h2>Welcome</h2>
+                    <p>Click the link below to verify your email</p>
+                    <a href=${verificationUrl} target="_blank">${verificationUrl}</a>
+                </div>
+            `
+        });
+
+
+        return res.status(200).json({
+            message: "New Verification email sent to your email"
+        });
+    } catch (err) {
+
     }
 }
 
@@ -196,4 +297,4 @@ export const resetPasswordController = async (req: Request, res: Response) => {
             error: err.message
         })
     }
-}
+}; 
