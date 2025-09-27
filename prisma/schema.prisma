@@ -21,9 +21,13 @@ model User {
   password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   roleId String
   role   Role   @relation(fields: [roleId], references: [id])
+
+  // password reset token
+  verificationToken VerificationToken[]
+  isVerified Boolean @default(false)
 }
 
 model Role {
@@ -45,4 +49,14 @@ model RolePermission {
   permissionId String
   role         Role       @relation(fields: [roleId], references: [id])
   permission   Permission @relation(fields: [permissionId], references: [id])
+}
+
+model VerificationToken {
+  id     String @id @default(uuid())
+  token  String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  userId String @unique
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime
 }

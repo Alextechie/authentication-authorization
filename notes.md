@@ -6,3 +6,14 @@ The select and include keywords should not be used at the same level. Select sho
 Select should be avoided when making dynamic queries because it can affect static typing.
 
 -- One can't use both select and include
+
+
+## NB
+The encodeURIComponent is used to encode a hash(generated from cryto lib) into a readable string by the browser.
+
+TODOS:
+1. Hash the verification token
+2. Decode the verification token when verifying the token sent to the user
+
+Points: -- When hashing the verificatino token you can't fetch for it using the token from req.query because its raw and the 
+one in the database is hashed. One should the userId associated with that token and compare it using the compare method from bcrypt.

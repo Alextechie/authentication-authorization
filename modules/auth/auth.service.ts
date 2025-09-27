@@ -1,12 +1,12 @@
 import { compare, generateAccessToken, generateRefreshToken, hash } from "../../utils/lib";
 import type { User } from "../../utils/types"
-import { createUser, findUser } from "./auth.model";
+import { createUser, findUser, updateUserPassword, verification } from "./auth.model";
 import { serializerForToken, serializerForUser } from "../../utils/serializers";
 import type { SafeUserProfile, TokenPayload } from "../../core/types/auth";
-import { access_token_exp, refresh_token_exp } from "../../utils/env";
+import crypto from "crypto";
 
 export const Authservice = {
-    async registerUser(data: User): Promise<{ user: SafeUserProfile, access_token: string }> {
+    async registerUser(data: User): Promise<{ user: SafeUserProfile, access_token: string, verificationUrl: string }> {
         const { email, password } = data;
 
         // check if user exists
@@ -19,9 +19,22 @@ export const Authservice = {
         // hash the password and create a new user
         const hashed = await hash(password);
 
-        // call the register user method in the auth service
-        const user = await createUser({ ...data, password: hashed });
 
+
+        // call the register user method in the auth service
+        const user = await createUser({ ...data, password: hashed});
+
+        // generate verification token
+        // set the expiry for the verification token
+        const verificationToken = crypto.randomBytes(32).toString("hex");
+        const verificationTokenExpiry = new Date(Date.now() +  1000 * 60 * 15);
+
+        // hash the verification token
+        const hashedToken = await hash(verificationToken);
+
+        await verification(user.id, hashedToken, verificationTokenExpiry);
+
+        const verificationUrl = `${process.env.APP_URL}/auth/verify-email?token=${encodeURIComponent(verificationToken)}&id=${user.id}`;
 
         const permissions = user.role.permissions.map((rp) => rp.permission.action);
 
@@ -32,11 +45,10 @@ export const Authservice = {
         // sign jwt with the payload and secret
         const access_token = await generateAccessToken(payload)
 
-        // send an email / sms
-
         return {
             user: serializerForUser(user),
-            access_token
+            access_token,
+            verificationUrl
         }
     },
 
@@ -70,5 +82,47 @@ export const Authservice = {
             access_token,
             refresh_token
         }
+    },
+
+    async passwordReset(email: string, password: string){
+        // find the user with particular email
+        // reset the password
+        const user = await findUser(email);
+
+        if(!user){
+            throw new Error("User does not exist")
+        };
+
+        // reset the password
+        // hash the new password
+        // update the password for the user with that email
+
+        // optional: send user a notification of the secret to use to update profile
+        // optional: send user a notification after successfuly changing the password
+        const hashed = await hash(password);
+
+        const updatedProfile = await updateUserPassword(hashed, user.email);
+
+        return {
+            username: updatedProfile.username,
+            email: updatedProfile.email,
+            role: updatedProfile.role.permissions
+        }
+    },
+
+    async verifyEmail(email: string){
+        // get the user with that email
+        // send them an otp to verify that indeed that their real email
+        // user enter otp and verify the otp and send login the user 
+
+        const user = await findUser(email);
+
+        if(!user){
+            throw new Error("User does not exist")
+        };
+
+        // send them an email or notification with the otp
+        // verify the otp and login the user
+
     }
 }

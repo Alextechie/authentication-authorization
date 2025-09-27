@@ -6,3 +6,11 @@ export interface User {
     password: string;
 };
 
+
+export interface EmailProps {
+    to: string;
+    subject: string;
+    html: HTMLDivElement;
+    link?: string;
+};
+
